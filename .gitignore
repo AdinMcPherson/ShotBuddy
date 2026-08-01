@@ -1,0 +1,64 @@
+# ---- Secrets: never commit any of these ----
+*.jks
+*.keystore
+key.properties
+*.p12
+*.pem
+*.pfx
+.env
+.env.*
+!.env.example
+secrets.json
+google-services.json
+service-account*.json
+
+# ---- Personal / capture data ----
+# No video or photos of people belong in this repo. See SECURITY.md.
+*.mp4
+*.mov
+*.avi
+captures/
+recordings/
+
+# ---- Flutter / Dart ----
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+coverage/
+doc/api/
+*.g.dart.lock
+
+# ---- Android ----
+android/.gradle/
+android/local.properties
+android/app/release/
+android/app/debug/
+android/captures/
+android/.cxx/
+*.apk
+*.aab
+
+# ---- iOS (not targeted, but keep it clean) ----
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+
+# ---- ML training scratch ----
+ml/datasets/
+ml/runs/
+ml/wandb/
+*.pt
+*.onnx
+# Trained .tflite models ARE committed, via Git LFS.
+
+# ---- Editors / OS ----
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
