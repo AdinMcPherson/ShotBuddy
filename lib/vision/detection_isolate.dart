@@ -7,6 +7,21 @@ import 'package:flutter/services.dart' show rootBundle;
 import '../domain/models.dart';
 import 'detector.dart';
 import 'frame_converter.dart';
+import 'scene_signature.dart';
+
+/// What the worker sends back for one frame.
+class FrameResult {
+  const FrameResult(this.detections, this.signature);
+
+  final List<Detection> detections;
+
+  /// Brightness fingerprint of the same frame, computed in the worker because
+  /// that is where the raw planes already are — shipping them back to the UI
+  /// isolate just to summarize them would defeat the point.
+  final SceneSignature? signature;
+
+  static const empty = FrameResult(<Detection>[], null);
+}
 
 /// Runs colour conversion and inference on a background isolate.
 ///
@@ -36,7 +51,7 @@ class DetectionWorker {
   /// Model input edge length, reported by the worker once it has loaded.
   final int inputSize;
 
-  Completer<List<Detection>>? _inFlight;
+  Completer<FrameResult>? _inFlight;
   bool _closed = false;
 
   /// True while a frame is being processed.
@@ -97,17 +112,17 @@ class DetectionWorker {
     // A dropped ball for one frame is exactly what the tracker is built to
     // ride through, and throwing here would only give the caller a harder
     // version of the same problem.
-    pending.complete(message is List<Detection> ? message : const []);
+    pending.complete(message is FrameResult ? message : FrameResult.empty);
   }
 
   /// Hand one frame to the worker.
   ///
   /// Returns null — immediately, without copying anything — if the previous
   /// frame is still in flight or the worker is closed.
-  Future<List<Detection>>? process(YuvFrame frame, {int quarterTurns = 0}) {
+  Future<FrameResult>? process(YuvFrame frame, {int quarterTurns = 0}) {
     if (_closed || _inFlight != null) return null;
 
-    final completer = Completer<List<Detection>>();
+    final completer = Completer<FrameResult>();
     _inFlight = completer;
     _toWorker.send(_FrameRequest.from(frame, quarterTurns));
     return completer.future;
@@ -118,7 +133,9 @@ class DetectionWorker {
     _closed = true;
     final pending = _inFlight;
     _inFlight = null;
-    if (pending != null && !pending.isCompleted) pending.complete(const []);
+    if (pending != null && !pending.isCompleted) {
+      pending.complete(FrameResult.empty);
+    }
     _isolate.kill(priority: Isolate.immediate);
     _fromWorker.close();
   }
@@ -215,11 +232,11 @@ void _workerMain(_Boot boot) {
   toWorker.listen((message) {
     if (message is! _FrameRequest) return;
     try {
-      final rgb = converter.convert(
-        message.materialize(),
-        quarterTurns: message.quarterTurns,
+      final frame = message.materialize();
+      final rgb = converter.convert(frame, quarterTurns: message.quarterTurns);
+      boot.toMain.send(
+        FrameResult(detector.run(rgb), SceneSignature.fromFrame(frame)),
       );
-      boot.toMain.send(detector.run(rgb));
     } catch (e) {
       // One bad frame must not take the worker down with it — the session
       // keeps running and the next frame gets a clean attempt.

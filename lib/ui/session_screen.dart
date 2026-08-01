@@ -159,6 +159,8 @@ class _SessionScreenState extends State<SessionScreen> {
                 ),
                 if (_controller.mode == SessionMode.calibrating)
                   const _CalibrationPrompt(),
+                if (_controller.mode == SessionMode.rimLost)
+                  _RimLostPrompt(onRecalibrate: _controller.recalibrate),
                 if (_controller.showDebug)
                   Positioned(
                     left: 8,
@@ -204,6 +206,63 @@ class _CalibrationPrompt extends StatelessWidget {
             'that — if it moves, tap Recalibrate.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shown when the phone appears to have been moved after calibration.
+///
+/// Loud on purpose. The failure this guards against is silent — shots scored
+/// against a rim that is no longer where the user pointed — so the recovery has
+/// to be impossible to miss and impossible to ignore. Automatic counting is
+/// already stopped by the time this appears; manual MAKE/MISS still works, so
+/// the user is never stuck.
+class _RimLostPrompt extends StatelessWidget {
+  const _RimLostPrompt({required this.onRecalibrate});
+
+  final VoidCallback onRecalibrate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.72),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.screen_rotation_alt,
+            color: Colors.redAccent,
+            size: 44,
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Rim lost — the phone moved',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Counting has stopped rather than score shots against a rim that '
+            'is no longer where you marked it. Put the phone back or mark the '
+            'rim again. Your tally so far is safe, and MAKE / MISS still work '
+            'by hand.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+          ),
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: onRecalibrate,
+            icon: const Icon(Icons.center_focus_strong),
+            label: const Text('Mark the rim again'),
           ),
         ],
       ),

@@ -10,6 +10,7 @@ import '../domain/models.dart';
 import '../domain/tracker.dart';
 import '../vision/detection_isolate.dart';
 import '../vision/frame_converter.dart';
+import '../vision/scene_signature.dart';
 
 /// How the screen should be behaving right now.
 enum SessionMode {
@@ -21,6 +22,10 @@ enum SessionMode {
 
   /// Watching for shots.
   running,
+
+  /// The phone appears to have moved, so the calibrated rim can no longer be
+  /// trusted. Shots stop counting until the user marks the rim again.
+  rimLost,
 
   /// Something went wrong and the user needs to know what.
   error,
@@ -43,6 +48,13 @@ class SessionController extends ChangeNotifier {
 
   final BallTracker tracker = BallTracker();
   MakeMissRules? _rules;
+
+  /// Watches for the phone being bumped after the rim was marked.
+  final SceneMonitor _scene = SceneMonitor();
+
+  /// Latest frame fingerprint, held so calibration can arm the monitor with
+  /// what the camera is seeing at the moment the user taps the rim.
+  SceneSignature? _lastSignature;
 
   SessionMode mode = SessionMode.starting;
   String? errorMessage;
@@ -184,9 +196,9 @@ class SessionController extends ChangeNotifier {
 
     unawaited(
       pending
-          .then((detections) {
+          .then((result) {
             if (_disposed) return;
-            _applyDetections(detections, started);
+            _applyResult(result, started);
           })
           .catchError((Object e) {
             debugPrint('ShotBuddy: frame failed: $e');
@@ -198,11 +210,26 @@ class SessionController extends ChangeNotifier {
   ///
   /// Runs on the UI isolate, but only over a handful of boxes — the expensive
   /// work is already done by the time this is called.
-  void _applyDetections(List<Detection> detections, DateTime started) {
+  void _applyResult(FrameResult result, DateTime started) {
+    final detections = result.detections;
     lastDetections = detections;
 
     final ball = bestBall(detections);
     lastBall = ball;
+
+    final signature = result.signature;
+    if (signature != null) {
+      _lastSignature = signature;
+      if (mode == SessionMode.running && !_scene.armed) {
+        // A session restored from disk comes back with a rim but no reference
+        // frame. Adopt the first frame we see: it cannot vouch for what
+        // happened while the app was closed, but it does mean a bump from here
+        // on is caught.
+        _scene.arm(signature);
+      } else if (_scene.update(signature)) {
+        _onRimLost();
+      }
+    }
 
     if (mode == SessionMode.running && _rules != null) {
       final nowMs = DateTime.now().millisecondsSinceEpoch;
@@ -252,7 +279,31 @@ class SessionController extends ChangeNotifier {
     _rules = MakeMissRules(rim: rim!);
     tracker.reset();
     mode = SessionMode.running;
+
+    // Remember what the camera saw at the moment the rim was marked. Everything
+    // afterwards is measured against this frame.
+    final signature = _lastSignature;
+    if (signature != null) {
+      _scene.arm(signature);
+    } else {
+      _scene.disarm();
+    }
+
     unawaited(_persistRim());
+    notifyListeners();
+  }
+
+  /// The phone moved. Stop counting and say so.
+  ///
+  /// Refusing to log is the point — see docs/ARCHITECTURE.md. Silently
+  /// recording shots against a rim that is no longer where the user pointed is
+  /// worse than recording nothing, because the user has no way to tell it
+  /// happened. Shots already recorded are kept; only new ones stop.
+  void _onRimLost() {
+    if (mode != SessionMode.running) return;
+    mode = SessionMode.rimLost;
+    tracker.reset();
+    _rules?.resetAll();
     notifyListeners();
   }
 
@@ -273,6 +324,7 @@ class SessionController extends ChangeNotifier {
     mode = SessionMode.calibrating;
     tracker.reset();
     _rules?.resetAll();
+    _scene.disarm();
     notifyListeners();
   }
 

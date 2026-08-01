@@ -136,6 +136,26 @@ Details worth knowing:
 
 ---
 
+### D-013 — "Rim lost" is detected from whole-scene motion, not from the rim
+**2026-07-31 · Accepted**
+
+ARCHITECTURE.md describes locking the rim visually and re-verifying it every N frames. That is not available to us: the stock COCO model has no rim class, which is the same reason the rim is tapped rather than found (D-008). But the mitigation Phase 1 actually asks for — never silently log against a rim that has moved — does not need the rim. It needs to know the *camera* moved, and that is visible in any frame.
+
+Each frame is reduced to a 16×16 grid of mean luma in the worker, where the raw planes already are, and compared against the frame captured when the rim was marked. Two robustness choices carry the whole design, and they only work as a pair:
+
+- **Median difference, not mean.** A rebounder, a passing player, a ball in flight each change a minority of cells. Only a camera that actually moved changes nearly all of them at once.
+- **Centered on the median, not the mean.** A uniform brightness change — auto-exposure, gym lights, a cloud — must cancel, or it reads as a move. But centering on a *mean* is itself dragged by a few saturated cells, which would offset every untouched cell and manufacture the very global shift the median difference exists to ignore.
+
+The second point was found by a test, not by reasoning, and is worth remembering: robust statistics have to be robust at every step or the fragile step dominates.
+
+Confirmation takes 15 consecutive displaced frames (~1s) and cannot clear itself. A false alarm costs one tap; a missed one costs a session of shots scored against the wrong rim, invisibly. Already-recorded shots are kept and manual MAKE/MISS keeps working, so the user is never stuck.
+
+**The thresholds are guesses.** `displacementThreshold = 12` and `framesToConfirm = 15` were reasoned from first principles, not measured in a gym. They are the first numbers to tune against real footage.
+
+*Revisit if:* the alarm fires during normal play, or a real bump gets through. Both are threshold problems before they are design problems.
+
+---
+
 ## Deferred — decide later, on purpose
 
 | Question | Decide by |

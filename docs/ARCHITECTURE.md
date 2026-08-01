@@ -73,12 +73,16 @@ If inference takes 60ms and frames arrive every 33ms, a queue grows without boun
 
 The rim is effectively static, so detecting it every frame is wasted compute and a source of jitter.
 
+The target design is:
+
 1. On session start, run detection at full rate for ~2 seconds.
 2. Take the median rim box across stable frames → lock it as the rim plane.
 3. Thereafter, verify the rim every N frames rather than every frame.
 4. If verification fails repeatedly, enter a visible **"rim lost — reposition"** state and stop logging shots.
 
 Refusing to log is deliberate. Silently recording garbage after the phone gets bumped is worse than recording nothing.
+
+**As built (Phase 1):** steps 1–3 need a model that can see a rim, and the stock COCO detector cannot ([D-008](DECISIONS.md)) — so the rim is tapped once instead. Step 4 does *not* need the rim, and is built: each frame is reduced to a coarse luma grid and compared against the frame captured at calibration, so a phone that gets moved is caught even though the rim itself is invisible to us ([D-013](DECISIONS.md)). The user-visible behaviour is the one specified above; only the mechanism differs, and it converges once a rim-aware model lands.
 
 ## Shot lifecycle state machine
 

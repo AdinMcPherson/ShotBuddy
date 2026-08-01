@@ -48,6 +48,16 @@ All notable changes to ShotBuddy are recorded here. Format follows [Keep a Chang
   hand-corrected calls ringed
 - 8 further unit tests covering the rotation and the converter's output shape
 
+### Added — 2026-07-31
+- **"Rim lost" detection.** If the phone is moved after the rim was marked,
+  counting stops and says so rather than scoring shots against a rim that is no
+  longer there ([D-013](docs/DECISIONS.md)). Detected from whole-scene motion,
+  since the stock model cannot see a rim; built to ignore rebounders crossing
+  frame and gym-light changes. Recorded shots are kept and manual MAKE/MISS
+  keeps working
+- 13 unit tests for the displacement detector, including the false-positive
+  cases it exists to survive
+
 ### Known limitations
 - Detector is not basketball-specific; expect trouble in dim light or with
   multiple balls in frame
