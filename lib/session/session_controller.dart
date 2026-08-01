@@ -65,6 +65,23 @@ class SessionController extends ChangeNotifier {
 
   bool showDebug = false;
 
+  /// Clockwise quarter-turns needed to bring a sensor frame into display
+  /// orientation. Set by the UI, which is the only thing that knows how the
+  /// phone is being held. Landscape is 0 — the sensor is already landscape —
+  /// and portrait is 1.
+  int _quarterTurns = 0;
+
+  /// Called by the UI on every orientation change. Cheap and idempotent.
+  void setDisplayRotation(int quarterTurns) {
+    final turns = quarterTurns & 3;
+    if (turns == _quarterTurns) return;
+    _quarterTurns = turns;
+    // The rim was marked in the old orientation and means nothing in the new
+    // one, so ask for it again rather than silently scoring against a rim that
+    // is no longer where the user pointed.
+    if (rim != null) recalibrate();
+  }
+
   /// True while an inference is in flight. Frames that arrive meanwhile are
   /// dropped, never queued — a queue would put the overlay seconds behind
   /// reality, and the trajectory fit already tolerates gaps.
@@ -78,6 +95,44 @@ class SessionController extends ChangeNotifier {
   double get percentage => attempts == 0 ? 0 : makes / attempts * 100;
   int get unresolved => _rules?.unresolved ?? 0;
   ShotPhase get phase => _rules?.phase ?? ShotPhase.idle;
+
+  /// Makes in a row, counting back from the most recent shot.
+  int get currentStreak {
+    var n = 0;
+    for (var i = shots.length - 1; i >= 0; i--) {
+      if (shots[i].result != ShotResult.make) break;
+      n++;
+    }
+    return n;
+  }
+
+  /// Longest run of makes this session.
+  int get bestStreak {
+    var best = 0;
+    var run = 0;
+    for (final s in shots) {
+      run = s.result == ShotResult.make ? run + 1 : 0;
+      if (run > best) best = run;
+    }
+    return best;
+  }
+
+  /// Shooting percentage over the last [n] attempts — a much better read on how
+  /// you are shooting *right now* than a session average that a cold start
+  /// keeps dragging down.
+  double recentPercentage([int n = 10]) {
+    if (shots.isEmpty) return 0;
+    final window = shots.length <= n ? shots : shots.sublist(shots.length - n);
+    final made = window.where((s) => s.result == ShotResult.make).length;
+    return made / window.length * 100;
+  }
+
+  /// The most recent [n] shots, oldest first.
+  List<Shot> recentShots([int n = 12]) =>
+      shots.length <= n ? List.of(shots) : shots.sublist(shots.length - n);
+
+  Duration get elapsed =>
+      startedAt == null ? Duration.zero : DateTime.now().difference(startedAt!);
 
   Future<void> init() async {
     try {
@@ -124,7 +179,7 @@ class SessionController extends ChangeNotifier {
     // colour conversion hurts exactly as much as a slow model.
     final started = DateTime.now();
     try {
-      final rgb = _converter!.convert(image);
+      final rgb = _converter!.convert(image, quarterTurns: _quarterTurns);
       final detections = _detector!.run(rgb);
       lastDetections = detections;
 

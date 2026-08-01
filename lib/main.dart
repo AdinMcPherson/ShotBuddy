@@ -6,16 +6,20 @@ import 'ui/session_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Landscape-only, and not just for looks. The camera delivers frames in
-  // sensor orientation; locking the app to landscape makes the preview and the
-  // frame buffer share one coordinate space, so a tap on the rim in the preview
-  // means the same thing to the detector. It also happens to be how you would
-  // actually prop a phone to film a hoop.
+  // Portrait and landscape both work. The camera delivers frames in sensor
+  // orientation, which is landscape on every phone we care about, so portrait
+  // needs the frame rotated before the detector sees it — FrameConverter does
+  // that, driven by the orientation SessionScreen reports. Getting this wrong
+  // is not subtle: the rim tap and the ball boxes stop agreeing.
   await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
-  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  // Edge-to-edge rather than immersive: portrait puts real buttons near the
+  // bottom of the screen, and hiding the nav bar under them is how you get
+  // accidental back-swipes mid-session. SafeArea does the rest.
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   runApp(const ShotBuddyApp());
 }

@@ -22,7 +22,14 @@ class FrameConverter {
   /// across every frame, so it costs a little accuracy on box shape but nothing
   /// on whether the ball is found. Since we track box centers rather than box
   /// edges, this is a good trade.
-  Uint8List convert(CameraImage image) {
+  ///
+  /// [quarterTurns] rotates the frame clockwise by that many 90-degree steps on
+  /// the way out, so the buffer arrives in *display* orientation. The rotation
+  /// is free: we are sampling into the destination anyway, so it costs an index
+  /// permutation rather than a second pass over the pixels. Everything
+  /// downstream — detections, the tracker, the rim — then lives in one
+  /// coordinate space no matter how the phone is held.
+  Uint8List convert(CameraImage image, {int quarterTurns = 0}) {
     final out = Uint8List(size * size * 3);
 
     final yPlane = image.planes[0];
@@ -40,14 +47,38 @@ class FrameConverter {
     final srcWidth = image.width;
     final srcHeight = image.height;
 
+    final turns = quarterTurns & 3;
+    final maxX = srcWidth - 1;
+    final maxY = srcHeight - 1;
+
     var o = 0;
     for (var dy = 0; dy < size; dy++) {
-      final sy = dy * srcHeight ~/ size;
-      final yRow = sy * yRowStride;
-      final uvRow = (sy >> 1) * uvRowStride;
-
       for (var dx = 0; dx < size; dx++) {
-        final sx = dx * srcWidth ~/ size;
+        // Destination (dx, dy) is in display space; walk back to the source
+        // pixel it came from. Rotating the *sampling* is the same as rotating
+        // the image, without allocating one.
+        final int gx;
+        final int gy;
+        switch (turns) {
+          case 1: // source rotated 90 degrees clockwise
+            gx = dy;
+            gy = size - 1 - dx;
+          case 2:
+            gx = size - 1 - dx;
+            gy = size - 1 - dy;
+          case 3:
+            gx = size - 1 - dy;
+            gy = dx;
+          default:
+            gx = dx;
+            gy = dy;
+        }
+
+        final sx = (gx * srcWidth ~/ size).clamp(0, maxX);
+        final sy = (gy * srcHeight ~/ size).clamp(0, maxY);
+
+        final yRow = sy * yRowStride;
+        final uvRow = (sy >> 1) * uvRowStride;
 
         final yIndex = yRow + sx;
         final uvIndex = uvRow + (sx >> 1) * uvPixelStride;
