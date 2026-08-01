@@ -69,6 +69,39 @@ Committing NBA video or images to a public repo is a copyright problem regardles
 
 ---
 
+### D-008 — Ship a stock COCO detector first; train the real model after
+**2026-07-31 · Accepted**
+
+The plan called for a purpose-trained two-class ball+rim detector, which is days of dataset work. The COCO-pretrained EfficientDet-Lite0 already has a `sports ball` class, so ball detection works with no training at all. The missing half — the rim — is supplied by the user tapping it once, instead of a detector finding it.
+
+This gets real auto make/miss counting into a gym immediately, and the first real session becomes evidence for what the trained model actually needs to handle.
+
+*Cost:* accuracy is worse than a purpose-trained model, especially in poor light and with several balls in frame. `BallDetector` is the seam where the trained model drops in; nothing above it changes.
+
+*Revisit:* as soon as there is labeled footage from a real session.
+
+---
+
+### D-009 — Landscape-only
+**2026-07-31 · Accepted**
+
+The camera delivers frames in sensor orientation while the preview is rotated for display. Locking to landscape makes those two coordinate spaces agree, which means a tap on the rim in the preview means the same thing to the detector — no rotation matrix, no per-device orientation quirks to chase. It is also the orientation you would prop a phone in to film a hoop anyway.
+
+*Revisit if:* portrait becomes worth supporting. That requires an explicit transform between preview and frame space, and a device matrix to test it on.
+
+---
+
+### D-010 — Inference runs on the main isolate for now
+**2026-07-31 · Accepted**
+
+`IsolateInterpreter` would keep the UI thread free, but it needs shaped nested-list inputs, which means allocating and reshaping ~300k elements per frame. The direct `setTo`/`invoke` path avoids that allocation entirely, at the cost of blocking the UI thread for the duration of inference.
+
+Frames are dropped rather than queued while inference is in flight, so the overlay stays in the present. Expect some jank; it does not affect counting.
+
+*Revisit if:* the debug panel shows FPS below ~10 on target hardware, or the jank proves annoying in real use.
+
+---
+
 ## Deferred — decide later, on purpose
 
 | Question | Decide by |

@@ -4,7 +4,15 @@
 
 Point your phone at the hoop, hit record, and shoot. ShotBuddy detects the ball and the rim, follows the ball's arc, and decides whether it went in. No manual tapping, no cloud, no account.
 
-> **Status: Phase 0 — planning.** Nothing is built yet. See [docs/ROADMAP.md](docs/ROADMAP.md) for the plan and [docs/TECH_STACK.md](docs/TECH_STACK.md) for the technology choices.
+> **Status: Phase 1 in progress — first working build.** Live camera detection, tap-to-calibrate rim, automatic make/miss counting, and manual override all work. Accuracy is untested in a real gym. See [docs/GAMEDAY.md](docs/GAMEDAY.md) to run it and [docs/ROADMAP.md](docs/ROADMAP.md) for what's next.
+
+## Try it
+
+```bash
+flutter pub get && flutter run
+```
+
+Needs a physical Android device — an emulator's fake camera can't validate anything. Prop the phone in landscape, tap the rim once, and shoot.
 
 ---
 
@@ -25,6 +33,7 @@ Point your phone at the hoop, hit record, and shoot. ShotBuddy detects the ball 
 
 ## Documentation
 
+- [docs/GAMEDAY.md](docs/GAMEDAY.md) — how to set up at the court and what to expect
 - [docs/ROADMAP.md](docs/ROADMAP.md) — the phases, what "done" means for each, and the risks
 - [docs/TECH_STACK.md](docs/TECH_STACK.md) — every dependency, why it was chosen, and its license
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the detection pipeline and app layers fit together
