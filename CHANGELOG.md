@@ -27,11 +27,32 @@ All notable changes to ShotBuddy are recorded here. Format follows [Keep a Chang
 - GitHub Actions CI: format, analyze, test, and debug APK artifact
 - `docs/GAMEDAY.md` — court setup and honest limitations
 
+### Fixed — 2026-07-31
+- Detector model asset was the raw EfficientDet-Lite0 export, whose per-anchor
+  outputs have no NMS — the app failed at load with an output-signature error and
+  never reached the camera. Replaced with the post-processed build of the same
+  model, which also cut the release APK from 75.8 MB to 67.0 MB
+- Preview no longer crops the frame. `BoxFit.cover` meant the detector reasoned
+  about pixels the user could not see, and a rim tap landed on different pixels
+  than the ones scored against it ([D-011](docs/DECISIONS.md))
+
+### Changed — 2026-07-31
+- Portrait and landscape are both supported; the frame is rotated into display
+  orientation during conversion, so one coordinate space holds throughout
+  ([D-011](docs/DECISIONS.md)). Rotating the phone clears the rim and re-prompts
+- Conversion and inference moved to a background isolate — the UI thread no
+  longer blocks on a frame ([D-012](docs/DECISIONS.md)). Frames are still dropped
+  rather than queued while the worker is busy
+- Two orientation-specific layouts, plus last-10 percentage, current and best
+  streak, a session clock, and a strip of the last twelve shots with
+  hand-corrected calls ringed
+- 8 further unit tests covering the rotation and the converter's output shape
+
 ### Known limitations
 - Detector is not basketball-specific; expect trouble in dim light or with
   multiple balls in frame
-- Inference blocks the UI thread ([D-010](docs/DECISIONS.md)) — some jank is expected
-- Accuracy has not been measured in a real gym
+- Accuracy has not been measured in a real gym, and neither has the FPS the
+  isolate work was meant to buy
 
 ### Not yet started
 - Purpose-trained ball+rim model, Drift persistence, stats and shot charts

@@ -8,7 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../domain/make_miss.dart';
 import '../domain/models.dart';
 import '../domain/tracker.dart';
-import '../vision/detector.dart';
+import '../vision/detection_isolate.dart';
 import '../vision/frame_converter.dart';
 
 /// How the screen should be behaving right now.
@@ -39,8 +39,7 @@ class SessionController extends ChangeNotifier {
   static const _rimKey = 'shotbuddy.rim.v1';
 
   CameraController? camera;
-  BallDetector? _detector;
-  FrameConverter? _converter;
+  DetectionWorker? _worker;
 
   final BallTracker tracker = BallTracker();
   MakeMissRules? _rules;
@@ -82,10 +81,6 @@ class SessionController extends ChangeNotifier {
     if (rim != null) recalibrate();
   }
 
-  /// True while an inference is in flight. Frames that arrive meanwhile are
-  /// dropped, never queued — a queue would put the overlay seconds behind
-  /// reality, and the trajectory fit already tolerates gaps.
-  bool _busy = false;
   int _framesSinceTick = 0;
   DateTime _lastTick = DateTime.now();
 
@@ -136,8 +131,7 @@ class SessionController extends ChangeNotifier {
 
   Future<void> init() async {
     try {
-      _detector = await BallDetector.load();
-      _converter = FrameConverter(size: _detector!.inputSize);
+      _worker = await DetectionWorker.spawn();
 
       final cameras = await availableCameras();
       final back = cameras.firstWhere(
@@ -172,39 +166,59 @@ class SessionController extends ChangeNotifier {
   }
 
   void _onFrame(CameraImage image) {
-    if (_busy || _detector == null || _converter == null) return;
-    _busy = true;
+    final worker = _worker;
+    if (worker == null) return;
 
     // Timing is measured around the whole convert+infer path, because a slow
     // colour conversion hurts exactly as much as a slow model.
     final started = DateTime.now();
-    try {
-      final rgb = _converter!.convert(image, quarterTurns: _quarterTurns);
-      final detections = _detector!.run(rgb);
-      lastDetections = detections;
 
-      final ball = _detector!.bestBall(detections);
-      lastBall = ball;
+    // Null means the worker is still on the previous frame. Drop this one and
+    // return without touching the planes — that is the whole backpressure
+    // policy, and it costs nothing.
+    final pending = worker.process(
+      YuvFrame.fromCameraImage(image),
+      quarterTurns: _quarterTurns,
+    );
+    if (pending == null) return;
 
-      if (mode == SessionMode.running && _rules != null) {
-        final nowMs = DateTime.now().millisecondsSinceEpoch;
-        final point = tracker.update(ball, nowMs);
-        final event = _rules!.update(
-          point: point,
-          tracker: tracker,
-          nowMs: nowMs,
-          confidence: ball?.score ?? 0,
-        );
-        if (event != null) _record(event);
-      }
-    } catch (e) {
-      debugPrint('ShotBuddy: frame failed: $e');
-    } finally {
-      inferenceMs = DateTime.now().difference(started).inMilliseconds;
-      _busy = false;
-      _tickFps();
-      notifyListeners();
+    unawaited(
+      pending
+          .then((detections) {
+            if (_disposed) return;
+            _applyDetections(detections, started);
+          })
+          .catchError((Object e) {
+            debugPrint('ShotBuddy: frame failed: $e');
+          }),
+    );
+  }
+
+  /// Fold one frame's detections into the tracker and the rule engine.
+  ///
+  /// Runs on the UI isolate, but only over a handful of boxes — the expensive
+  /// work is already done by the time this is called.
+  void _applyDetections(List<Detection> detections, DateTime started) {
+    lastDetections = detections;
+
+    final ball = bestBall(detections);
+    lastBall = ball;
+
+    if (mode == SessionMode.running && _rules != null) {
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final point = tracker.update(ball, nowMs);
+      final event = _rules!.update(
+        point: point,
+        tracker: tracker,
+        nowMs: nowMs,
+        confidence: ball?.score ?? 0,
+      );
+      if (event != null) _record(event);
     }
+
+    inferenceMs = DateTime.now().difference(started).inMilliseconds;
+    _tickFps();
+    notifyListeners();
   }
 
   void _tickFps() {
@@ -393,11 +407,16 @@ class SessionController extends ChangeNotifier {
     _nextShotId = shots.isEmpty ? 1 : shots.last.id + 1;
   }
 
+  /// Set before teardown so in-flight frame callbacks — which now outlive the
+  /// synchronous frame handler — know not to touch a disposed controller.
+  bool _disposed = false;
+
   @override
   void dispose() {
+    _disposed = true;
     camera?.stopImageStream();
     camera?.dispose();
-    _detector?.close();
+    _worker?.close();
     super.dispose();
   }
 }

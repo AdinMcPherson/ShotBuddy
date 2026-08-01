@@ -83,7 +83,7 @@ This gets real auto make/miss counting into a gym immediately, and the first rea
 ---
 
 ### D-009 — Landscape-only
-**2026-07-31 · Accepted**
+**2026-07-31 · Accepted · Superseded by D-011**
 
 The camera delivers frames in sensor orientation while the preview is rotated for display. Locking to landscape makes those two coordinate spaces agree, which means a tap on the rim in the preview means the same thing to the detector — no rotation matrix, no per-device orientation quirks to chase. It is also the orientation you would prop a phone in to film a hoop anyway.
 
@@ -92,13 +92,47 @@ The camera delivers frames in sensor orientation while the preview is rotated fo
 ---
 
 ### D-010 — Inference runs on the main isolate for now
-**2026-07-31 · Accepted**
+**2026-07-31 · Accepted · Superseded by D-012**
 
 `IsolateInterpreter` would keep the UI thread free, but it needs shaped nested-list inputs, which means allocating and reshaping ~300k elements per frame. The direct `setTo`/`invoke` path avoids that allocation entirely, at the cost of blocking the UI thread for the duration of inference.
 
 Frames are dropped rather than queued while inference is in flight, so the overlay stays in the present. Expect some jank; it does not affect counting.
 
 *Revisit if:* the debug panel shows FPS below ~10 on target hardware, or the jank proves annoying in real use.
+
+---
+
+### D-011 — Both orientations, with the rotation applied during conversion
+**2026-07-31 · Accepted · Supersedes D-009**
+
+Portrait is how you hold the phone when you are the one shooting, so the landscape lock was worth removing. The transform D-009 was wary of turned out to be nearly free: the converter already samples from the YUV planes into a 320×320 destination, so rotating is an index permutation in a loop that runs anyway, not a second pass over the pixels. The detector therefore always receives frames in *display* orientation and one coordinate space holds end to end.
+
+Two consequences we accept:
+
+- **Rotating clears the rim.** It was marked in normalized frame coordinates, which mean something different after a quarter-turn. Re-prompting is better than scoring against a rim that is no longer where the user pointed.
+- **The preview is letterboxed, not cropped.** `BoxFit.cover` cropped the frame, so the detector reasoned about pixels the user could not see and a rim tap landed on different pixels than the ones scored against it. `contain` costs black bars and buys a coordinate space that is actually true.
+
+The rotation is covered by unit tests (`test/frame_converter_test.dart`), including a case that distinguishes clockwise from counter-clockwise — the failure mode here is subtle enough that the corner cases alone would not catch it.
+
+*Revisit if:* a device turns up whose sensor orientation is not 90°, which would make the landscape case need a turn too.
+
+---
+
+### D-012 — Detection runs in a background isolate
+**2026-07-31 · Accepted · Supersedes D-010**
+
+D-010 traded UI smoothness for avoiding a per-frame reshape. That trade is no longer necessary: rather than using `IsolateInterpreter` with its shaped nested-list inputs, we spawn our own isolate that owns the interpreter outright and keeps the flat `setTo`/`invoke` path. No reshaping, and nothing blocks the UI.
+
+Conversion moved across with it. Inference is the obvious cost, but YUV→RGB is pure Dart over ~300k pixels per frame, so leaving it behind would still jank the preview.
+
+Details worth knowing:
+
+- The worker cannot use `rootBundle` — a spawned isolate has no binary messenger — so the model bytes are read once on the main isolate and passed to `Interpreter.fromBuffer`.
+- Frame planes travel as `TransferableTypedData`, which moves the buffers rather than copying ~460 KB thirty times a second. Safe because the camera plugin hands us a fresh copy per frame.
+- Backpressure is unchanged and still the point: `process` returns null while the worker is busy, and the caller drops that frame without copying anything.
+- A frame that throws inside the worker resolves as "no detections" rather than as an error. The tracker is built to ride through a missing frame; that is a strictly easier problem than an exception at the call site.
+
+*Revisit if:* profiling shows the isolate hop is a meaningful share of per-frame latency, which would argue for batching or a shared-memory ring buffer.
 
 ---
 

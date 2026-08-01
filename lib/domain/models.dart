@@ -34,6 +34,24 @@ class Detection {
   final NormRect box;
 }
 
+/// The single best `sports ball` among one frame's detections, or null.
+///
+/// Only one ball is tracked: in a pickup game there may be several on the
+/// court, and following the highest-confidence one is far more stable than
+/// trying to reason about all of them.
+///
+/// Lives here rather than on the detector because it is pure selection logic —
+/// the detector runs in a background isolate, and this runs on whichever side
+/// happens to hold the detections.
+Detection? bestBall(List<Detection> detections) {
+  Detection? best;
+  for (final d in detections) {
+    if (d.label != 'sports ball') continue;
+    if (best == null || d.score > best.score) best = d;
+  }
+  return best;
+}
+
 /// The ball's position at a single instant, in normalized image coordinates.
 class TrackPoint {
   const TrackPoint(this.x, this.y, this.t);

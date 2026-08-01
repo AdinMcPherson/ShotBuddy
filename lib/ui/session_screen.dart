@@ -504,10 +504,7 @@ class _ControlRail extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             for (final b in _utilityButtons(context, controller))
-              Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: b,
-              ),
+              Padding(padding: const EdgeInsets.only(left: 8), child: b),
           ],
         ),
         Column(
@@ -584,7 +581,9 @@ Future<void> _confirmReset(
     context: context,
     builder: (context) => AlertDialog(
       title: const Text('Start a new session?'),
-      content: const Text('This clears the current tally. It cannot be undone.'),
+      content: const Text(
+        'This clears the current tally. It cannot be undone.',
+      ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),

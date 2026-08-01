@@ -2,6 +2,44 @@ import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 
+/// One YUV420 frame, detached from the camera plugin.
+///
+/// [CameraImage] cannot cross an isolate boundary — it is a platform-channel
+/// view — so the frame is flattened into plain typed data the moment it
+/// arrives. That also makes the converter testable without a camera.
+class YuvFrame {
+  const YuvFrame({
+    required this.y,
+    required this.u,
+    required this.v,
+    required this.width,
+    required this.height,
+    required this.yRowStride,
+    required this.uvRowStride,
+    required this.uvPixelStride,
+  });
+
+  factory YuvFrame.fromCameraImage(CameraImage image) => YuvFrame(
+    y: image.planes[0].bytes,
+    u: image.planes[1].bytes,
+    v: image.planes[2].bytes,
+    width: image.width,
+    height: image.height,
+    yRowStride: image.planes[0].bytesPerRow,
+    uvRowStride: image.planes[1].bytesPerRow,
+    uvPixelStride: image.planes[1].bytesPerPixel ?? 1,
+  );
+
+  final Uint8List y;
+  final Uint8List u;
+  final Uint8List v;
+  final int width;
+  final int height;
+  final int yRowStride;
+  final int uvRowStride;
+  final int uvPixelStride;
+}
+
 /// Turns a camera frame into the square RGB buffer the detector wants.
 ///
 /// The naive approach — convert the whole 1280x720 frame to RGB, then resize —
@@ -29,23 +67,19 @@ class FrameConverter {
   /// permutation rather than a second pass over the pixels. Everything
   /// downstream — detections, the tracker, the rim — then lives in one
   /// coordinate space no matter how the phone is held.
-  Uint8List convert(CameraImage image, {int quarterTurns = 0}) {
+  Uint8List convert(YuvFrame frame, {int quarterTurns = 0}) {
     final out = Uint8List(size * size * 3);
 
-    final yPlane = image.planes[0];
-    final uPlane = image.planes[1];
-    final vPlane = image.planes[2];
+    final yBytes = frame.y;
+    final uBytes = frame.u;
+    final vBytes = frame.v;
 
-    final yBytes = yPlane.bytes;
-    final uBytes = uPlane.bytes;
-    final vBytes = vPlane.bytes;
+    final yRowStride = frame.yRowStride;
+    final uvRowStride = frame.uvRowStride;
+    final uvPixelStride = frame.uvPixelStride;
 
-    final yRowStride = yPlane.bytesPerRow;
-    final uvRowStride = uPlane.bytesPerRow;
-    final uvPixelStride = uPlane.bytesPerPixel ?? 1;
-
-    final srcWidth = image.width;
-    final srcHeight = image.height;
+    final srcWidth = frame.width;
+    final srcHeight = frame.height;
 
     final turns = quarterTurns & 3;
     final maxX = srcWidth - 1;

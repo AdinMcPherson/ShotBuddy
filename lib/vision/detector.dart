@@ -36,8 +36,6 @@ class BallDetector {
   static Future<BallDetector> load({
     String asset = 'assets/models/efficientdet_lite0.tflite',
   }) async {
-    final options = InterpreterOptions()..threads = 4;
-
     // NNAPI is the fastest path on most Android hardware, but it is also the
     // one most likely to fail on a specific device/driver combination. Fall
     // back rather than refusing to start.
@@ -51,16 +49,46 @@ class BallDetector {
       );
     } catch (e) {
       debugPrint('ShotBuddy: NNAPI delegate unavailable ($e); using CPU.');
-      interpreter = await Interpreter.fromAsset(asset, options: options);
+      interpreter = await Interpreter.fromAsset(
+        asset,
+        options: InterpreterOptions()..threads = 4,
+      );
     }
+    return BallDetector._fromInterpreter(interpreter);
+  }
 
+  /// Build a detector from model bytes rather than an asset path.
+  ///
+  /// The detection isolate uses this: `Interpreter.fromAsset` goes through the
+  /// root asset bundle over a platform channel, which a spawned isolate has no
+  /// messenger for. Reading the bytes once on the main isolate and shipping
+  /// them across is simpler than wiring up a background messenger, and the
+  /// model is read exactly once either way.
+  static BallDetector fromBuffer(Uint8List modelBytes) {
+    Interpreter interpreter;
+    try {
+      interpreter = Interpreter.fromBuffer(
+        modelBytes,
+        options: InterpreterOptions()
+          ..threads = 4
+          ..useNnApiForAndroid = true,
+      );
+    } catch (e) {
+      debugPrint('ShotBuddy: NNAPI delegate unavailable ($e); using CPU.');
+      interpreter = Interpreter.fromBuffer(
+        modelBytes,
+        options: InterpreterOptions()..threads = 4,
+      );
+    }
+    return BallDetector._fromInterpreter(interpreter);
+  }
+
+  static BallDetector _fromInterpreter(Interpreter interpreter) {
     final inputTensor = interpreter.getInputTensor(0);
     final inputSize = inputTensor.shape[1];
     final isFloat = inputTensor.type == TensorType.float32;
 
-    final detector = BallDetector._(interpreter, inputSize, isFloat)
-      .._mapOutputs();
-    return detector;
+    return BallDetector._(interpreter, inputSize, isFloat).._mapOutputs();
   }
 
   void _mapOutputs() {
@@ -161,20 +189,6 @@ class BallDetector {
       );
     }
     return results;
-  }
-
-  /// The single best `sports ball` in a frame, or null.
-  ///
-  /// Only one ball is tracked: in a pickup game there may be several on the
-  /// court, and following the highest-confidence one is far more stable than
-  /// trying to reason about all of them.
-  Detection? bestBall(List<Detection> detections) {
-    Detection? best;
-    for (final d in detections) {
-      if (d.label != 'sports ball') continue;
-      if (best == null || d.score > best.score) best = d;
-    }
-    return best;
   }
 
   /// TFLite's post-process op emits scores in descending order. If the tensor
